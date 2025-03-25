@@ -1,0 +1,339 @@
+#importing all the necessary libraries
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from wordcloud import WordCloud
+from string import punctuation
+from nltk.corpus import stopwords
+import seaborn as sns
+import math as math
+
+# Loading the dataset
+
+#importing the dataset
+df=pd.read_csv('netflix_titles.csv')
+
+#to view first 5 rows of the dataset ,getting general overview of the  data
+df.head()
+
+#to view last 5 rows of the dataset
+df.tail()
+
+#to check the shape of the dataset
+df.shape
+
+#information of the dataset contents
+df.info()
+
+#checking the names of the columns in the dataset
+df.columns
+
+#checking the datatypes of the columns
+df.dtypes
+
+#number of movies/tvshows released in each year is shown
+pd.crosstab(index=df['release_year'],columns='count')
+
+#plotting a bar graph to show distribution of rating categories
+plt.figure(figsize=(8,6))
+df['rating'].value_counts(normalize=True).plot.bar()
+plt.title('Distribution of rating categories')
+plt.xlabel('rating')
+plt.ylabel('relative frequency')
+plt.show()
+
+#plotting a countplot to show comparision between frequency of the type and rating
+plt.figure(figsize=(10,8))
+sns.countplot(x='rating',hue='type',color='m',data=df)
+plt.title('comparing frequency between type and rating')
+plt.legend="upper left corner"
+plt.show()
+
+#plotting a bar graph to show distribution of year added
+plt.figure(figsize=(20,5))
+df['release_year'].value_counts().plot.bar(color=['black', 'red', 'green', 'blue', 'cyan'])
+plt.title('distribution of year-added')
+plt.ylabel('relative frequency')
+plt.xlabel('year_added')
+plt.show()
+
+#filling null values in date_added and changing it's format using real expressions
+df['date_added']=df['date_added'].fillna('January 1, {}'.format(str(df['release_year'].mode()[0])))
+
+# convert to datetime
+df["date_added"] = pd.to_datetime(df['date_added'])
+df['year'] = df['date_added'].dt.year
+df['month'] = df['date_added'].dt.month
+df['day'] = df['date_added'].dt.day
+# convert columns "director, listed_in, cast and country" in columns that contain a real list
+# the strip function is applied on the elements
+# if the value is NaN, the new column contains a empty list []
+df['directors'] = df['director'].apply(lambda l: [] if pd.isna(l) else [i.strip() for i in l.split(",")])
+df['categories'] = df['listed_in'].apply(lambda l: [] if pd.isna(l) else [i.strip() for i in l.split(",")])
+df['actors'] = df['cast'].apply(lambda l: [] if pd.isna(l) else [i.strip() for i in l.split(",")])
+df['countries'] = df['country'].apply(lambda l: [] if pd.isna(l) else [i.strip() for i in l.split(",")])
+
+df.head()
+
+#dc=description_cleaning
+dc = " ".join(df.description.values)
+
+#using wordcloud to show movie titles
+movie_titles = " ".join(df.title.values)
+word_cloud = WordCloud(width=800,height=800,background_color='black',max_words=150).\
+generate_from_text(movie_titles)
+plt.figure(figsize=[8,8])
+plt.imshow(word_cloud)
+plt.show()
+
+# using wordcloud to show genres
+movie_genre = " ".join(df.listed_in.values)
+word_cloud = WordCloud(width=500,height=500,background_color='white',max_words=30).\
+generate_from_text(movie_genre)
+plt.figure(figsize=[10,10])
+plt.imshow(word_cloud)
+plt.show()
+
+#checking the length of cleaned description column
+len(dc)
+
+#creating an empty list and a dictionary to Caluclate frequency of each word
+all_terms = []
+fdist = {}
+all_terms = dc.split(" ")
+for word in all_terms:
+    fdist[word] = fdist.get(word,0) + 1
+
+# Dictionary with each word as key and Value as frequency
+freq = {"words":list(fdist.keys()),"freq":list(fdist.values())}
+df_dist = pd.DataFrame(freq)
+
+# plotting a bar graph to show frequency of words
+%matplotlib inline
+df_dist.sort_values(ascending=False, by="freq").head(25).\
+plot.bar(x= "words", y= "freq",color="orange",figsize=(20,5))
+
+# using nltk to remove stopwords
+stop_nltk = stopwords.words("english")
+
+# removing punctuations
+stop_updated = stop_nltk + list(punctuation) + ["..."] 
+
+# importing tokenizer to tokenize 
+from nltk.tokenize import word_tokenize
+
+# if the word is not a stopword or a punctuation add it to res
+def  clean_txt(sent):
+    tokens = word_tokenize(sent.lower())
+    res=""
+    for term in tokens :
+               if (term not in stop_updated and len(term) > 2):
+                    res = res+" "+term
+    res=res.strip()                
+    return res
+
+#applying clean text function to description
+df['cd'] = df.description.apply(clean_txt)
+
+#adding the values to reviews_combined column
+reviews_combined = " ".join(df.cd.values)
+
+# Word cloud on cleaned dataset
+reviews_combined = " ".join(df.cd.values)
+word_cloud = WordCloud(width=800,height=800,background_color='violet',max_words=150).\
+generate_from_text(reviews_combined)
+plt.figure(figsize=[8,8])
+plt.imshow(word_cloud)
+plt.show()
+
+#creating an empty list and a dictionary to Caluclate frequency of each word in reviews_combined
+all_terms = []
+fdist = {}
+all_terms = reviews_combined.split(" ")
+for word in all_terms:
+    fdist[word] = fdist.get(word,0) + 1
+
+# Dictionary with each word as key and Value as frequency
+freq = {"words":list(fdist.keys()),"freq":list(fdist.values())}
+df_dist = pd.DataFrame(freq)
+
+#plotting a bar graph between words and frequency 
+%matplotlib inline
+df_dist.sort_values(ascending=False, by="freq").head(25).\
+plot.bar(x= "words", y= "freq",color='red',figsize=(20,5)) 
+
+# KMeans clustering with TF-IDF
+
+#importing necessary libraries 
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import linear_kernel
+from sklearn.cluster import MiniBatchKMeans
+
+# Build the tfidf matrix with the descriptions
+tc= df['cd']
+vector = TfidfVectorizer(max_df=0.4,         # drop words that occur in more than X percent of documents
+                             min_df=1,      # only use words that appear at least X times
+                             stop_words=('english'), # remove stop words
+                             lowercase=True, # Convert everything to lower case 
+                             use_idf=True,   # Use idf
+                             norm=(u'l2'),     # Normalization
+                             smooth_idf=True # Prevents divide-by-zero errors
+                            )
+tfidf = vector.fit_transform(tc)
+
+First idea ...
+In order to take in account the description, the movie are clustered by applying a KMeans clustering with TF-IDF weights
+So two movies that belong in a group of description will share a node.
+The fewer the number of films in the group, the more this link will be taken into account
+
+*but it doesn't work because clusters are too unbalanced
+
+Second idea ...
+In order to take in account the description, calcul the TF-IDF matrix
+and for each film, take the top 5 of similar descriptions and create a node Similar_to_this. This node will be taken in account in the Adamic Adar measure.
+
+# Find similar : get the top_n movies with description similar to the target description 
+#«column cluster are not going to be used because clusters are two unbalanced
+#But tfidf using in order to find similar description»
+def find_similar(tfidf_matrix, index, top_n = 5):
+    cosine_similarities = linear_kernel(tfidf_matrix[index:index+1], tfidf_matrix).flatten()
+    related_docs_indices = [i for i in cosine_similarities.argsort()[::-1] if i != index]
+    return [index for index in related_docs_indices][0:top_n]
+
+#importing networkx to depict the data in the form of a graph
+import networkx as nx
+
+import time 
+
+# Load the graph (undirected graph)
+
+
+Nodes are :
+
+Movies
+Person ( actor or director)
+Categorie
+Countrie
+Cluster (description)
+Sim(title) top 5 similar movies in the sense of the description
+Edges are :
+
+ACTED_IN : relation between an actor and a movie
+CAT_IN : relation between a categrie and a movie
+DIRECTED : relation between a director and a movie
+COU_IN : relation between a country and a movie
+DESCRIPTION : relation between a cluster and a movie
+SIMILARITY in the sense of the description
+«so, two movies are not directly connected, but they share persons, categories,clusters and countries»
+
+#creating a graph and adding nodes and edges to it
+G = nx.Graph(label="MOVIE")
+start_time = time.time()
+for i, rowi in df.iterrows():
+    if (i%1000==0):
+        print(" iter {} -- {} seconds --".format(i,time.time() - start_time))
+    G.add_node(rowi['title'],key=rowi['show_id'],label="MOVIE",mtype=rowi['type'],rating=rowi['rating'])
+    for element in rowi['actors']:
+        G.add_node(element,label="PERSON")
+        G.add_edge(rowi['title'], element, label="ACTED_IN")
+    for element in rowi['categories']:
+        G.add_node(element,label="CAT")
+        G.add_edge(rowi['title'], element, label="CAT_IN")
+    for element in rowi['directors']:
+        G.add_node(element,label="PERSON")
+        G.add_edge(rowi['title'], element, label="DIRECTED")
+    for element in rowi['countries']:
+        G.add_node(element,label="COU")
+        G.add_edge(rowi['title'], element, label="COU_IN")
+    
+    indices = find_similar(tfidf, i, top_n = 5)
+    snode="Sim("+rowi['title'][:15].strip()+")"        
+    G.add_node(snode,label="SIMILAR")
+    G.add_edge(rowi['title'], snode, label="SIMILARITY")
+    for element in indices:
+        G.add_edge(snode, df['title'].loc[element], label="SIMILARITY")
+print(" finish -- {} seconds --".format(time.time() - start_time)) 
+
+# A sub-graph with two movies
+
+#defining functions to get all adjacent nodes and draw subgraphs. Assigning colours to the nodes
+
+def get_all_adj_nodes(list_in):
+    sub_graph=set()
+    for m in list_in:
+        sub_graph.add(m)
+        for e in G.neighbors(m):        
+                sub_graph.add(e)
+    return list(sub_graph)
+def draw_sub_graph(sub_graph):
+    subgraph = G.subgraph(sub_graph)
+    colors=[]
+    for e in subgraph.nodes():
+        if G.nodes[e]['label']=="MOVIE":
+            colors.append('blue')
+        elif G.nodes[e]['label']=="PERSON":
+            colors.append('red')
+        elif G.nodes[e]['label']=="CAT":
+            colors.append('green')
+        elif G.nodes[e]['label']=="COU":
+            colors.append('yellow')
+        elif G.nodes[e]['label']=="SIMILAR":
+            colors.append('orange') 
+        elif G.nodes[e]['label']=="CLUSTER":
+            colors.append('orange')
+
+    nx.draw(subgraph, with_labels=True, font_weight='bold',node_color=colors)
+    plt.show()
+
+#a graph for the movies ocean's twelve and ocean's thirteen
+list_in=["Ocean's Twelve","Ocean's Thirteen"]
+sub_graph = get_all_adj_nodes(list_in)
+draw_sub_graph(sub_graph)
+
+# Recommendation function
+
+#defining a function to get recommendations
+#Explore the neighborhood of the target film → this is a list of actor, director, country, categorie
+#Explore the neighborhood of each neighbor → discover the movies that share a node with the target field
+#Calculate Adamic Adar measure → final results
+def get_recommendation(root):
+    commons_dict = {}
+    for e in G.neighbors(root):
+        for e2 in G.neighbors(e):
+            if e2==root:
+                continue
+            if G.nodes[e2]['label']=="MOVIE":
+                commons = commons_dict.get(e2)
+                if commons==None:
+                    commons_dict.update({e2 : [e]})
+                else:
+                    commons.append(e)
+                    commons_dict.update({e2 : commons})
+    movies=[]
+    weight=[]
+    for key, values in commons_dict.items():
+        w=0.0
+        for e in values:
+            w=w+1/math.log(G.degree(e))
+        movies.append(key) 
+        weight.append(w)
+    result = pd.Series(data=np.array(weight),index=movies)
+    result.sort_values(inplace=True,ascending=False)        
+    return result;
+
+
+# Testing
+
+result = get_recommendation("Ocean's Twelve")#predicting movies for oceans twelve
+result2 = get_recommendation("Ocean's Thirteen")
+result3 = get_recommendation("The Devil Inside")
+result4 = get_recommendation("Stranger Things")
+print("*"*40+"\n Recommendation for 'Ocean's Twelve'\n"+"*"*40)
+print(result.head())
+print("*"*40+"\n Recommendation for 'Ocean's Thirteen'\n"+"*"*40)
+print(result2.head())
+print("*"*40+"\n Recommendation for 'The Devil Inside'\n"+"*"*40)
+print(result3.head())
+print("*"*40+"\n Recommendation for 'Stranger Things'\n"+"*"*40)
+print(result4.head())
